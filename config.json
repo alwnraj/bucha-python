@@ -1,0 +1,6 @@
+{
+  "input_glb": "data/destroyed_apartments_bucha_ukraine_war_2022.glb",
+  "annotations": "annotations.json",
+  "output_directory": "results",
+  "generate_previews": true
+}
