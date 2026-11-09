@@ -157,6 +157,42 @@ Second test scan: `flat-roof.glb` from [Matt1Up drone-building-scans](https://hu
 
 Known limits: SegFormer gives classes, not instances, so touching objects of one class merge, and one object can split across classes. Textured objects keep scan holes. Object GLBs keep only the texels they use: `texture_crop.py` finds the used texture in 16-pixel tiles (2-pixel margin), packs those blocks into a new image and shifts the UVs; geometry is untouched and `segmented-scene.glb` keeps the exact source. JPEG textures are re-encoded at quality 92 (renders differ by under 0.1 of 255 on average); PNG stays lossless. Objects that use most of the atlas, such as the flat-roof building, keep the original image. Object GLBs total about 35 MB for Bucha (was about 300 MB) and 170 MB for flat-roof (was about 700 MB; the 4M-face building is 125 MB of geometry). Pass `--full-textures` to skip this. The model is under NVIDIA's noncommercial license.
 
+## Split a GLB into objects without labels
+
+`split_scene.py` separates objects by geometry alone, indoors or outdoors, with no model:
+
+```sh
+.venv/bin/python split_scene.py --input data/HaxA7YrQdEC.glb --output results-split-house
+```
+
+It finds the scan's structure, cuts it away, and what is left falls apart into one object per connected piece:
+
+- **Floors and ground:** large up-facing regions, plus smaller ones at the same heights.
+- **Ceilings:** large down-facing regions.
+- **Walls and facades:** large, tall vertical regions.
+- **Slivers:** thinner than 5 cm (baseboards, door frames), joined to the structure they touch.
+- **Leftovers:** pieces under 0.05 m² or 0.2 m across, kept separately.
+
+Normals are smoothed without crossing corners, and faces only connect to faces pointing the same way, so floors cannot chain into walls.
+
+| Output | Contents |
+|---|---|
+| `object_001.glb` … | One textured object per file, largest first, packed textures |
+| `structure_floor.glb`, `structure_walls.glb`, `structure_ceiling.glb` | What was cut away (floor includes outdoor ground) |
+| `unknown.glb` | Leftover crumbs |
+| `scene-split.glb` | Whole scene, one flat colour per object (walls grey, floors brown) |
+| `objects.json` | Per object: kind, faces, position, bounds, size along the ground frame, base height |
+| `objects-sheet.png`, `colliders/`, `closed/` | Thumbnails, open and closed colliders, as in `extract_objects.py` |
+
+Options: `--min-size`, `--min-area` and `--thin` (source units). `--labels` additionally names each object with SegFormer-B5 ADE20K (150 indoor and outdoor classes), using cameras placed on the detected floors. This is experimental: on the HM3D house about half the objects were never seen, and most of the rest came out as wall, ceiling or floor.
+
+Results, neither checked against hand labels:
+
+- **HM3D house `HaxA7YrQdEC.glb`** (394,348 faces, 36 s): 327 objects (61 with 1,000+ faces) in 235 MB. Floors are found on every storey, and chairs, beds, sofas, a ceiling fan, shelves and desks separate. Window blinds and shutters, stair parts and door frames also come out as objects.
+- **Flat-roof scan** (5.5M faces, 3.5 minutes): 519 objects (105 with 1,000+ faces). Each rooftop HVAC unit and skylight curb, the shrubs, posts, electrical boxes and cinder blocks separate cleanly. Long thin roof-edge trims remain as objects, and some neighbouring shrubs merge.
+
+Touching objects stay one object.
+
 ## Try a collision query in Python
 
 After running the pipeline, inspect `run-report.json` for a ray derived from the generated geometry, or supply your own source-coordinate ray:
@@ -251,7 +287,7 @@ Use `--scene results-experiment/collision-scene.json` when querying an alternate
 
 ## Checks and current limits
 
-Run the self-contained tests (68 at the latest count; the paragraph below describes the original 18):
+Run the self-contained tests (72 at the latest count; the paragraph below describes the original 18):
 
 ```sh
 python -m unittest discover -s tests -v

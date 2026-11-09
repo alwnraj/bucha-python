@@ -8,7 +8,8 @@ UVs are shifted to match. Geometry, indices, materials and every other
 attribute are unchanged. Images that share UVs through one material (for
 example a base color and a specular map) get the same layout.
 
-JPEG textures are re-encoded (quality 92); PNG stays lossless. Groups with
+Images no triangle uses become 1x1 placeholders. JPEG textures are re-encoded
+(quality 92); PNG stays lossless. Groups with
 wrapped UVs (outside 0..1), texture transforms, mismatched image sizes or no
 real saving are left as they were.
 """
@@ -162,8 +163,17 @@ def repack_textures(path, output=None, tile=16, pad=2, quality=92):
         group["images"].add(image)
         group["uvs"].setdefault(attribute, []).append(faces)
     new_uvs, new_images = {}, {}
-    before = sum(doc["bufferViews"][doc["images"][i]["bufferView"]]["byteLength"]
-                 for i in {image for _, _, image in uses})
+    embedded = [i for i, image in enumerate(doc.get("images", [])) if "bufferView" in image]
+    before = sum(doc["bufferViews"][doc["images"][i]["bufferView"]]["byteLength"] for i in embedded)
+    # Images no triangle here samples (a cut-out object keeps every scene image) become
+    # 1x1 placeholders, so texture and material indices stay valid.
+    used = {image for _, _, image in uses}
+    for i in embedded:
+        if i not in used:
+            stream = BytesIO()
+            Image.new("RGB", (1, 1)).save(stream, "PNG")
+            new_images[i] = stream.getvalue()
+            doc["images"][i]["mimeType"] = "image/png"
     for group in groups.values():
         images = sorted(group["images"])
         if blocked & group["images"]:
@@ -198,10 +208,10 @@ def repack_textures(path, output=None, tile=16, pad=2, quality=92):
             new_images[i] = stream.getvalue()
     if not new_images:
         return before, before
+    after = sum(len(data) for data in new_images.values()) + sum(
+        doc["bufferViews"][doc["images"][i]["bufferView"]]["byteLength"] for i in set(embedded) - set(new_images))
     _rewrite(doc, blob, new_uvs, new_images, output)
-    return before, sum(len(data) for data in new_images.values()) + sum(
-        doc["bufferViews"][doc["images"][i]["bufferView"]]["byteLength"]
-        for i in {image for _, _, image in uses} - set(new_images))
+    return before, after
 
 
 def _rewrite(doc, blob, new_uvs, new_images, output):

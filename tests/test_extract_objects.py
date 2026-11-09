@@ -269,6 +269,37 @@ class TextureCropTests(unittest.TestCase):
             self.assertGreater((renders[0][0] == renders[1][0]).all(axis=2)[covered].mean(), .99)
 
 
+class UnusedImageTests(unittest.TestCase):
+    def test_images_no_triangle_uses_become_placeholders(self):
+        from io import BytesIO
+        from PIL import Image
+        from texture_crop import repack_textures
+        from segment_objects import read_glb
+
+        with tempfile.TemporaryDirectory() as directory:
+            source, packed = Path(directory) / "strip.glb", Path(directory) / "packed.glb"
+            _textured_strip(source)
+            doc, blob = read_glb(source)
+            stream = BytesIO()
+            Image.fromarray(np.random.default_rng(2).integers(0, 255, (256, 256, 3), dtype=np.uint8)).save(
+                stream, "PNG")
+            extra = stream.getvalue()
+            blob = bytearray(blob) + b"\0" * (-len(blob) % 4)
+            doc["bufferViews"].append({"buffer": 0, "byteOffset": len(blob), "byteLength": len(extra)})
+            blob.extend(extra)
+            doc["images"].append({"bufferView": len(doc["bufferViews"]) - 1, "mimeType": "image/png"})
+            doc["textures"].append({"source": 1})
+            doc["materials"].append({"pbrMetallicRoughness": {"baseColorTexture": {"index": 1}}})
+            write_glb(source, doc, blob)
+            before, after = repack_textures(source, packed)
+            self.assertGreater(before, len(extra))
+            self.assertLess(after, before / 10)
+            packed_doc, packed_blob = read_glb(packed)
+            view = packed_doc["bufferViews"][packed_doc["images"][1]["bufferView"]]
+            self.assertLess(view["byteLength"], 200)
+            self.assertIsNotNone(load_scene(packed))  # still loads and renders
+
+
 class LargeScanTests(unittest.TestCase):
     def test_batched_sub_pixel_triangles_match_the_exact_renderer(self):
         with tempfile.TemporaryDirectory() as directory:

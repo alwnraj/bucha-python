@@ -97,7 +97,16 @@ def ground_frame(chunks):
     low, high = np.percentile(heights, 2), np.percentile(heights, 98)
     quarter = (high - low) / 4
     if area[horizontal & (heights >= high - quarter)].sum() > area[horizontal & (heights <= low + quarter)].sum():
-        up, heights = -up, -heights
+        up = -up
+    # Refine the tilt: area-weighted mean normal of nearly horizontal faces.
+    for limit in (20, 10):
+        cosine = (normals @ up) / np.maximum(2 * area, 1e-30)
+        flat_faces = np.abs(cosine) >= np.cos(np.radians(limit))
+        if flat_faces.any():
+            refined = (normals[flat_faces] * np.sign(cosine[flat_faces])[:, None]).sum(axis=0)
+            up = refined / np.linalg.norm(refined)
+    heights = triangles.mean(axis=1) @ up
+    horizontal = np.abs(normals @ up) >= np.cos(np.radians(35)) * np.maximum(2 * area, 1e-30)
     flat = horizontal if horizontal.any() else np.ones(len(heights), bool)
     offset = -float(np.percentile(heights[flat], 5))
     ground["right"], ground["forward"], ground["up"] = _basis_from_up(up)
@@ -117,6 +126,7 @@ class SegFormer:
         from infer_labels import _load_model
 
         self.session, self.processor, labels, self.entry = _load_model(model_dir)
+        self.labels = labels  # ADE20K class names by model output index
         lookup = {ade: CLASSES.index(name) for name, ades in OUTDOOR_CLASSES.items() for ade in ades}
         self.group = np.zeros((len(CLASSES), len(labels)), dtype=np.float32)
         for class_id, name in labels.items():
@@ -136,13 +146,34 @@ class SegFormer:
         probabilities = np.exp(logits)
         probabilities /= probabilities.sum(axis=0, keepdims=True)
         classes, height, width = probabilities.shape
-        return (self.group @ probabilities.reshape(classes, -1)).reshape(len(CLASSES), height, width)
+        return (self.group @ probabilities.reshape(classes, -1)).reshape(len(self.group), height, width)
 
 
-def plan_cameras(triangles, ground, eye_height=1.6, positions=40, headings=6, aerial=12, fov=75.0):
+def _clearance(points, eyes, radius):
+    """Distance from each eye to the nearest point, capped at ``radius`` (grid lookup)."""
+    cell = np.floor(points / radius).astype(np.int64)
+    keys = (cell[:, 0] * 73856093) ^ (cell[:, 1] * 19349663) ^ (cell[:, 2] * 83492791)
+    order = np.argsort(keys)
+    keys, sorted_points = keys[order], points[order]
+    result = np.full(len(eyes), radius)
+    eye_cells = np.floor(eyes / radius).astype(np.int64)
+    for offset in np.array(np.meshgrid([-1, 0, 1], [-1, 0, 1], [-1, 0, 1])).reshape(3, -1).T:
+        neighbour = eye_cells + offset
+        wanted = (neighbour[:, 0] * 73856093) ^ (neighbour[:, 1] * 19349663) ^ (neighbour[:, 2] * 83492791)
+        low, high = np.searchsorted(keys, wanted), np.searchsorted(keys, wanted, side="right")
+        for i in np.flatnonzero(high > low):
+            distance = np.linalg.norm(sorted_points[low[i]:high[i]] - eyes[i], axis=1).min()
+            result[i] = min(result[i], distance)
+    return result
+
+
+def plan_cameras(triangles, ground, eye_height=1.6, positions=40, headings=6, aerial=12, fov=75.0, floor=None):
     """Street-level cameras above open ground plus two aerial rings.
 
-    Returns a list of 4x4 camera-to-world poses (OpenCV axes).
+    ``floor`` optionally marks the faces cameras may stand on (for example
+    every detected floor of a building); cells are then also split by height,
+    so each storey gets its own cameras. Returns 4x4 camera-to-world poses
+    (OpenCV axes).
     """
     up, right, forward = ground["up"], ground["right"], ground["forward"]
     centers = triangles.mean(axis=1)
@@ -151,21 +182,35 @@ def plan_cameras(triangles, ground, eye_height=1.6, positions=40, headings=6, ae
     heights = ground["residual_centers"]
     flat = np.column_stack((centers @ right, centers @ forward))
     low, high = np.percentile(flat, 1, axis=0), np.percentile(flat, 99, axis=0)
-    floor = (np.abs(normals @ up) >= np.cos(np.radians(35))) & (heights < max(eye_height, ground["scene_height"] / 4))
+    storeys = floor is not None
+    if floor is None:
+        floor = (np.abs(normals @ up) >= np.cos(np.radians(35))) & (heights < max(eye_height, ground["scene_height"] / 4))
     poses = []
     if positions > 0 and floor.any():
         spacing = np.sqrt(np.prod(np.maximum(high - low, 1e-9)) / positions)
         cells = np.floor((flat[floor] - low) / spacing).astype(np.int64)
+        if storeys:
+            cells = np.column_stack((cells, np.floor(heights[floor] / (2 * eye_height)).astype(np.int64)))
         _, cell_index = np.unique(cells, axis=0, return_inverse=True)
+        cell_index = cell_index.ravel()
         floor_points = centers[floor]
+        # Up to 50 candidate spots per cell; keep the one with the most open space.
+        rng = np.random.default_rng(0)
+        order = rng.permutation(len(floor_points))
+        rank = np.empty(len(order), dtype=np.int64)
+        ranked = order[np.argsort(cell_index[order], kind="stable")]
+        starts = np.searchsorted(cell_index[ranked], np.arange(cell_index.max() + 1))
+        rank[ranked] = np.arange(len(ranked)) - starts[cell_index[ranked]]
+        chosen = np.flatnonzero(rank < 50)
+        candidates = floor_points[chosen] + up * eye_height
+        clearance = _clearance(centers, candidates, eye_height)
         eyes = []
         for cell in range(cell_index.max() + 1):
-            points = floor_points[cell_index.ravel() == cell]
-            middle = points[np.argmin(np.linalg.norm(points - np.median(points, axis=0), axis=1))]
-            eye = middle + up * eye_height
-            # Skip spots inside walls or rubble: no surface may come this close.
-            if np.linalg.norm(centers - eye, axis=1).min() >= .5 * eye_height:
-                eyes.append(eye)
+            options = np.flatnonzero(cell_index[chosen] == cell)
+            best = options[np.argmax(clearance[options])]
+            # Skip spots inside walls, furniture or rubble: no surface may come this close.
+            if clearance[best] >= .5 * eye_height:
+                eyes.append(candidates[best])
         if len(eyes) > positions:
             eyes = [eyes[i] for i in np.linspace(0, len(eyes) - 1, positions).astype(int)]
         pitch = np.radians(-10)
@@ -486,19 +531,19 @@ def _render_object(path, ground, size=(200, 150)):
     return rgb
 
 
-def contact_sheet(output, objects, ground, columns=6, limit=60):
+def contact_sheet(output, objects, ground, columns=6, limit=60, caption=None):
     """One labeled thumbnail per object (largest first) for quick review."""
     shown = sorted(objects, key=lambda obj: -obj["triangles"])[:limit]
-    tile_w, tile_h, caption = 200, 150, 30
+    tile_w, tile_h, text_h = 200, 150, 30
     rows = max(1, -(-len(shown) // columns))
-    sheet = Image.new("RGB", (columns * tile_w, rows * (tile_h + caption)), (245, 245, 245))
+    sheet = Image.new("RGB", (columns * tile_w, rows * (tile_h + text_h)), (245, 245, 245))
     draw = ImageDraw.Draw(sheet)
     for k, obj in enumerate(shown):
-        x, y = (k % columns) * tile_w, (k // columns) * (tile_h + caption)
+        x, y = (k % columns) * tile_w, (k // columns) * (tile_h + text_h)
         sheet.paste(Image.fromarray(_render_object(output / obj["glb"], ground)), (x, y))
         draw.text((x + 4, y + tile_h + 2), obj["name"], fill=(0, 0, 0))
-        draw.text((x + 4, y + tile_h + 15), f"{obj['triangles']:,} faces, conf {obj['confidence_mean']:.2f}",
-                  fill=(90, 90, 90))
+        text = caption(obj) if caption else f"{obj['triangles']:,} faces, conf {obj['confidence_mean']:.2f}"
+        draw.text((x + 4, y + tile_h + 15), text, fill=(90, 90, 90))
     sheet.save(output / "objects-sheet.png")
 
 
@@ -543,27 +588,21 @@ def label_scene(source, work, predict, eye_height=1.6, positions=40, headings=6,
     return scene, triangles, ground, votes, seen, len(poses), settings
 
 
-def extract(source, output, model_dir=None, predict=None, eye_height=1.6, positions=40, headings=6,
-            size=(640, 480), min_faces=20, sheet=True, crop_textures=True):
-    """Run the whole pipeline; returns the ``objects.json`` contents."""
+def export_objects(source, output, triangles, ground, object_id, named, confidence, method, seen=None,
+                   crop_textures=True, sheet=True, solid=lambda entry: True, collider_notes=(),
+                   caption=None):
+    """Write per-object GLBs, open and closed colliders and the review sheet.
+
+    ``object_id`` gives each face an index into ``named`` (``(id, name, class)``
+    tuples, ids from 1; 0 = unknown). ``solid(entry)`` picks objects that get a
+    closed voxel collider and a thumbnail. Returns ``(manifest, object entries)``.
+    """
     from collision import export_collisions, write_mesh_collisions
     from segment_objects import segment
 
-    source, output = Path(source), Path(output)
-    work = output / "work"
-    work.mkdir(parents=True, exist_ok=True)
-    predict = predict or SegFormer(model_dir)
-    print("[1/4] Rendering views and voting labels onto faces...", flush=True)
-    scene, triangles, ground, votes, seen, view_count, settings = label_scene(
-        source, work, predict, eye_height, positions, headings, size)
-    print("[2/4] Smoothing labels and splitting objects...", flush=True)
-    adjacency = face_adjacency(triangles)
-    labels, confidence = smooth_labels(votes, seen, adjacency)
-    object_id, named = split_objects(labels, adjacency, triangles, min_faces, gap=ground["edge_scale"])
-    object_id, named = merge_fragments(object_id, named, confidence, adjacency, ground["residual_vertices"])
-    print(f"[3/4] Exporting {len(named)} objects (textured GLB + collision surfaces)...", flush=True)
+    output = Path(output)
     manifest = segment(source, output, face_objects={
-        "object_index": object_id, "confidence": confidence, "method": "street_and_aerial_view_votes_v1",
+        "object_index": object_id, "confidence": confidence, "method": method,
         "objects": [{"name": name, "semantic_class": label} for _, name, label in named]})
     export_collisions(source, output)
     if crop_textures:
@@ -582,21 +621,22 @@ def extract(source, output, model_dir=None, predict=None, eye_height=1.6, positi
     for obj in manifest["objects"]:
         members = np.flatnonzero(object_id == by_name.get(obj["name"], 0))
         tri = triangles[members]
-        local = tri.reshape(-1, 3) @ basis.T
+        points = tri.reshape(-1, 3)
+        local = points @ basis.T
         entry = {"name": obj["name"], "semantic_class": obj["semantic_class"], "triangles": int(len(members)),
                  "confidence_mean": float(confidence[members].mean()) if len(members) else 0.0,
-                 "seen_face_fraction": float((seen[members] > 0).mean()) if len(members) else 0.0,
-                 "position_xyz": ((tri.reshape(-1, 3).min(axis=0) + tri.reshape(-1, 3).max(axis=0)) / 2).tolist(),
-                 "bounds_3d": {"min": tri.reshape(-1, 3).min(axis=0).tolist(),
-                               "max": tri.reshape(-1, 3).max(axis=0).tolist()},
+                 "position_xyz": ((points.min(axis=0) + points.max(axis=0)) / 2).tolist(),
+                 "bounds_3d": {"min": points.min(axis=0).tolist(), "max": points.max(axis=0).tolist()},
                  "size_ground_frame": (local.max(axis=0) - local.min(axis=0)).tolist(),
                  "base_height_above_ground": float(local[:, 2].min() + ground["offset"]),
                  "glb": obj["asset"], "collider_open": f"colliders/{obj['name']}.obj"}
-        if obj["semantic_class"] != "unknown" and obj["semantic_class"] not in STUFF:
+        if seen is not None:
+            entry["seen_face_fraction"] = float((seen[members] > 0).mean()) if len(members) else 0.0
+        if obj["semantic_class"] != "unknown" and solid(entry):
             vertices, faces = closed_collider(tri, ground)
             closed.append({"id": obj["id"], "name": obj["name"], "vertices": vertices, "faces": faces,
                            "semantic_class": obj["semantic_class"], "closed_solid": True,
-                           "status": "voxel_column_fill_of_labeled_surface"})
+                           "status": "voxel_column_fill_of_object_surface"})
             entry["collider_closed"] = f"closed/colliders/{obj['name']}.obj"
         objects.append(entry)
     stale = output / "closed" / "colliders"  # earlier runs may have had other objects
@@ -604,11 +644,35 @@ def extract(source, output, model_dir=None, predict=None, eye_height=1.6, positi
         for path in stale.iterdir():
             if path.suffix in (".obj", ".npz"):
                 path.unlink()
-    write_mesh_collisions(output / "closed", closed, manifest["coordinate_frame"],
-                          limitations=[LIMITATIONS[4], LIMITATIONS[5]])
+    write_mesh_collisions(output / "closed", closed, manifest["coordinate_frame"], limitations=list(collider_notes))
     print("[4/4] Writing objects.json and the review sheet...", flush=True)
     if sheet:
-        contact_sheet(output, [o for o in objects if o["semantic_class"] not in STUFF | {"unknown"}], ground)
+        contact_sheet(output, [o for o in objects if o["semantic_class"] != "unknown" and solid(o)], ground,
+                      caption=caption)
+    return manifest, objects
+
+
+def extract(source, output, model_dir=None, predict=None, eye_height=1.6, positions=40, headings=6,
+            size=(640, 480), min_faces=20, sheet=True, crop_textures=True):
+    """Run the whole pipeline; returns the ``objects.json`` contents."""
+    source, output = Path(source), Path(output)
+    work = output / "work"
+    work.mkdir(parents=True, exist_ok=True)
+    predict = predict or SegFormer(model_dir)
+    print("[1/4] Rendering views and voting labels onto faces...", flush=True)
+    scene, triangles, ground, votes, seen, view_count, settings = label_scene(
+        source, work, predict, eye_height, positions, headings, size)
+    print("[2/4] Smoothing labels and splitting objects...", flush=True)
+    adjacency = face_adjacency(triangles)
+    labels, confidence = smooth_labels(votes, seen, adjacency)
+    object_id, named = split_objects(labels, adjacency, triangles, min_faces, gap=ground["edge_scale"])
+    object_id, named = merge_fragments(object_id, named, confidence, adjacency, ground["residual_vertices"])
+    print(f"[3/4] Exporting {len(named)} objects (textured GLB + collision surfaces)...", flush=True)
+    manifest, objects = export_objects(
+        source, output, triangles, ground, object_id, named, confidence, "street_and_aerial_view_votes_v1",
+        seen=seen, crop_textures=crop_textures, sheet=sheet,
+        solid=lambda entry: entry["semantic_class"] not in STUFF | {"unknown"},
+        collider_notes=[LIMITATIONS[4], LIMITATIONS[5]])
     summary = {
         "source_file": str(source.resolve()), "source_sha256": settings["source_sha256"],
         "method": "street_and_aerial_view_votes_v1",

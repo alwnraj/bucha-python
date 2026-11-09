@@ -151,3 +151,26 @@ The user pivoted from photos to GLB input: decompose an outdoor GLB into labeled
 
 `texture_crop.repack_textures` rewrites each object GLB with only the texture blocks its faces use (16 px tiles, 2 px margin, 4-connected blocks shelf-packed into a new image, UVs shifted per block). Images sharing UV accessors through a material get the same layout; groups with wrapped UVs, texture extensions, mismatched image sizes or under 30% saving are left unchanged. JPEG is re-encoded at quality 92. `extract_objects.py` runs it by default (`--full-textures` skips it) and notes it in `manifest.json` (`per_object_textures`); `segmented-scene.glb` keeps exact source textures, so the manifest's exactness flags describe that file and the per-face exports, not the packed object textures. Object GLBs: Bucha about 300 MB to 35 MB, flat-roof about 700 MB to 170 MB. Five sampled objects render with mean pixel differences of 0.01 to 0.06; the lossless synthetic test matches exactly. 68 tests pass. Nothing committed.
 
+## Label-free geometry split — 2026-11-08
+
+The user ran `extract_objects.py` on an HM3D indoor home (outdoor-only classes and cameras, so it failed), then asked for something general that extracts objects without labels. `split_scene.py` implements it:
+
+- **Method:**
+  - Edge-preserving normal smoothing (neighbours within 30°).
+  - Faces grouped as up, down or vertical within 25°; connect only within a group.
+  - Up-facing pieces of 4 m²+ set floor levels; pieces within 0.1 of a level are floor. Ceilings likewise.
+  - Vertical pieces of 2.5 m²+ spanning 1.8 are walls.
+  - Remaining connected pieces are objects. Slivers under 5 cm thick join the structure they touch; pieces under 0.05 m² or 0.2 across are leftovers.
+- **Outputs:** per-object GLBs, `structure_*.glb`, `scene-split.glb` (flat colours), `objects.json`, sheet and colliders, all through the shared `extract_objects.export_objects`.
+- **Results:**
+  - House: 327 objects in 36 s.
+  - Flat-roof: 519 objects in 3.5 min; HVAC units and shrubs separate well; roof-edge trims remain.
+- **`--labels` is experimental and poor indoors:** cameras on detected floors, no aerial views when ceilings exist, per-object vote cache keyed on poses. About half of the house objects were unseen; most others came out wall, ceiling or floor.
+- **Fixes made along the way:**
+  - `ground_frame` now refines up from horizontal-face normals; the HM3D house was 8° tilted.
+  - `plan_cameras` picks the most open of up to 50 spots per cell via a grid clearance lookup, and accepts a `floor` mask with per-storey cells.
+  - `SegFormer` output is sized by its class grouping and keeps `labels`.
+  - `texture_crop` replaces images no triangle uses with 1×1 placeholders. HM3D objects had carried all 40 scene images: house output went from 7.1 GB to 235 MB.
+
+72 tests pass. Nothing committed since `0116116`.
+
