@@ -7,8 +7,8 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from collision import raycast_scene, raycast_triangles
-from segment_objects import load_geometry
+from collision import export_collisions, raycast_scene, raycast_triangles
+from segment_objects import load_geometry, segment
 
 
 class RayTests(unittest.TestCase):
@@ -53,9 +53,12 @@ class RayTests(unittest.TestCase):
 class ExportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.results = ROOT / 'results'
-        if not (cls.results / 'run-report.json').exists():
-            raise RuntimeError('Run python run.py before testing the exported assets.')
+        temporary = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(temporary.cleanup)
+        cls.results = Path(temporary.name) / 'results'
+        source = ROOT / 'data/destroyed_apartments_bucha_ukraine_war_2022.glb'
+        segment(source, cls.results, ROOT / 'annotations.json')
+        export_collisions(source, cls.results)
 
     def test_default_annotation_counts_and_partition(self):
         with np.load(self.results / 'face-labels.npz') as data:

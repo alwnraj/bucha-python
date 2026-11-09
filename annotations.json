@@ -1,7 +1,13 @@
 {
+  "source_sha256": "488e2890ab5fa2b464d7b794b37e1b663d88ce7edd2d478135850108d3d7ae93",
   "method": "Visually guided, scan-specific face labeling; not learned semantic inference",
   "coordinate_system": "Original GLB world XY, Z up; physical scale unverified",
-  "polygon_input": "Pixel coordinates on the orthographic inspection render, 1240 x 1640. worldX = pixelX / 40 - 5; worldY = 27 - pixelY / 40.",
+  "preview_size": [1240, 1640],
+  "polygon_mapping": {
+    "origin": [-5, 27],
+    "pixels_per_world_unit": [40, -40]
+  },
+  "polygon_input": "Pixel coordinates on the preview_size orthographic inspection render; polygon_mapping converts pixels to source world XY.",
   "plane": {
     "normal": [-0.03825514950862483, 0.04229835940470084, 0.9983723715767296],
     "offset": -1.0186708864722922

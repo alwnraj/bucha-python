@@ -17,8 +17,11 @@ def export_collisions(input_glb, result_directory):
     triangles = np.concatenate([c['tri'] for c in chunks])
     with np.load(output / 'face-labels.npz') as data:
         labels = data['object_id']
-        source_mesh = data['source_mesh']
-        source_face = data['source_face']
+        source_arrays = {
+            name: data[name]
+            for name in ('source_instance', 'source_node', 'source_mesh', 'source_primitive', 'source_face')
+            if name in data.files
+        }
     if len(labels) != len(triangles):
         raise ValueError('Source geometry and label counts do not match.')
     folder = output / 'colliders'
@@ -35,17 +38,18 @@ def export_collisions(input_glb, result_directory):
         npz_name = f"colliders/{obj['name']}.npz"
         obj_name = f"colliders/{obj['name']}.obj"
         np.savez_compressed(output / npz_name, vertices=vertices, faces=faces,
-                            source_mesh=source_mesh[selected], source_face=source_face[selected],
+                            **{name: values[selected] for name, values in source_arrays.items()},
                             object_id=np.int32(obj['id']))
         with (output / obj_name).open('w') as stream:
-            stream.write('# Collision surface: world +Z up, unverified source units\n')
+            stream.write('# Collision surface: input GLB world coordinates; orientation and scale are unverified\n')
             stream.write('o ' + obj['name'] + '\n')
             np.savetxt(stream, vertices, fmt='v %.17g %.17g %.17g')
             np.savetxt(stream, faces.astype(np.int64) + 1, fmt='f %d %d %d')
         objects.append({k: obj[k] for k in ['id', 'name', 'semantic_class', 'status', 'triangles']} | {
             'npz': npz_name, 'obj': obj_name, 'collision_type': 'static_triangle_surface',
             'simplified': False, 'closed_solid': False})
-    scene = {'coordinate_frame': 'Original GLB world, +Z up', 'meters_per_unit': None,
+    scene = {'coordinate_frame': manifest.get('coordinate_frame', 'Input GLB world coordinates'),
+             'orientation': manifest.get('orientation'), 'meters_per_unit': manifest.get('meters_per_source_unit'),
              'objects': objects, 'source_sha256': manifest['source_sha256'],
              'geometry_verified_exact': True,
              'limitations': ['Open scan surfaces retain holes and incomplete backs',
@@ -53,6 +57,76 @@ def export_collisions(input_glb, result_directory):
                              'Semantic labels are provisional; ground does not mean traversable']}
     (output / 'collision-scene.json').write_text(json.dumps(scene, indent=2) + '\n')
     return scene
+
+
+def write_mesh_collisions(result_directory, objects, coordinate_frame, meters_per_unit=None, limitations=()):
+    """Write reconstructed meshes in the ``collision-scene.json`` format.
+
+    ``objects`` is a list of dicts with ``id``, ``name``, ``vertices`` and
+    ``faces`` plus optional ``semantic_class``, ``status`` and ``closed_solid``.
+    Reconstructed faces have no source face, so source IDs are stored as -1.
+    """
+    output = Path(result_directory)
+    (output / 'colliders').mkdir(parents=True, exist_ok=True)
+    entries = []
+    for obj in objects:
+        vertices = np.asarray(obj['vertices'], dtype=float)
+        faces = np.asarray(obj['faces'], dtype=np.uint32)
+        if vertices.ndim != 2 or vertices.shape[1] != 3 or faces.ndim != 2 or faces.shape[1] != 3:
+            raise ValueError('Each object needs (n, 3) vertices and (m, 3) faces.')
+        if len(faces) and faces.max() >= len(vertices):
+            raise ValueError('Face indices exceed the vertex count.')
+        npz_name, obj_name = f"colliders/{obj['name']}.npz", f"colliders/{obj['name']}.obj"
+        missing = np.full(len(faces), -1, dtype=np.int64)
+        np.savez_compressed(output / npz_name, vertices=vertices, faces=faces, source_mesh=missing,
+                            source_face=missing, object_id=np.int32(obj['id']))
+        with (output / obj_name).open('w') as stream:
+            stream.write(f'# Reconstructed collision mesh: {coordinate_frame}\n')
+            stream.write('o ' + obj['name'] + '\n')
+            np.savetxt(stream, vertices, fmt='v %.17g %.17g %.17g')
+            np.savetxt(stream, faces.astype(np.int64) + 1, fmt='f %d %d %d')
+        entries.append({'id': int(obj['id']), 'name': obj['name'],
+                        'semantic_class': obj.get('semantic_class', 'unknown'),
+                        'status': obj.get('status', 'reconstructed_unverified'), 'triangles': len(faces),
+                        'npz': npz_name, 'obj': obj_name, 'collision_type': 'static_triangle_surface',
+                        'simplified': False, 'closed_solid': bool(obj.get('closed_solid', False))})
+    scene = {'coordinate_frame': coordinate_frame, 'meters_per_unit': meters_per_unit,
+             'objects': entries, 'geometry_verified_exact': False, 'limitations': list(limitations)}
+    (output / 'collision-scene.json').write_text(json.dumps(scene, indent=2) + '\n')
+    return scene
+
+
+def derive_verification_ray(scene_path):
+    """Choose a face-derived ray that can verify one generated object ID."""
+    scene_path = Path(scene_path)
+    scene = json.loads(scene_path.read_text())
+    attempts = []
+    for obj in scene['objects']:
+        with np.load(scene_path.parent / obj['npz']) as data:
+            if len(data['faces']) == 0:
+                continue
+            triangles = data['vertices'][data['faces']]
+            cross = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+            areas = np.linalg.norm(cross, axis=1)
+            for face_index in np.argsort(areas)[::-1][:8]:
+                if areas[face_index] <= 1e-12:
+                    continue
+                normal = cross[face_index] / areas[face_index]
+                center = triangles[face_index].mean(axis=0)
+                span = max(float(np.ptp(data['vertices'], axis=0).max()), 1.0)
+                offset = max(span * 1e-5, 1e-4)
+                attempts.append({
+                    'origin': (center + normal * offset).tolist(),
+                    'direction': (-normal).tolist(),
+                    'expected_object_id': int(obj['id']),
+                    'expected_object_name': obj['name'],
+                })
+    for attempt in attempts:
+        hit = raycast_scene(scene_path, attempt['origin'], attempt['direction'])
+        if hit and hit['object_id'] == attempt['expected_object_id']:
+            attempt['hit'] = hit
+            return attempt
+    return None
 
 
 def normalize_ray(origin, direction, max_distance):
@@ -108,6 +182,9 @@ def raycast_scene(scene_path, origin, direction, max_distance=np.inf):
             hit.update(object_id=obj['id'], object_name=obj['name'], semantic_class=obj['semantic_class'],
                        label_status=obj['status'], source_mesh=int(data['source_mesh'][index]),
                        source_face=int(data['source_face'][index]))
+            for name in ('source_instance', 'source_node', 'source_primitive'):
+                if name in data.files:
+                    hit[name] = int(data[name][index])
             limit = hit['distance_source_units']
             nearest = hit
     return nearest

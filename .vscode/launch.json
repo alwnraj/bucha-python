@@ -9,16 +9,6 @@
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": true
-    },
-    {
-      "name": "Bucha: collision ray example",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/collision.py",
-      "args": ["--origin", "10", "0", "20", "--direction", "0", "0", "-1"],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "justMyCode": true
     }
   ]
 }
