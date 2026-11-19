@@ -323,7 +323,7 @@ The user ran `extract_objects.py` on an HM3D indoor home (outdoor-only classes a
 - **Not verified:**
   - The 0.25 m default robot radius is a placeholder; the real robot's size is unknown.
   - The path check treats the robot as a disc and checks 4-connected moves only, so it is slightly conservative.
-  - Unity's `AI Assistant` (2.22.0-pre.1) and `AI Inference` (2.6.1) packages appeared in `Packages/manifest.json` when the user opened the editor. They were not removed; the user has not decided.
+  - Unity's `AI Assistant` (2.22.0-pre.1) and `AI Inference` (2.6.1) packages appeared in `Packages/manifest.json` when the user opened the editor. They were committed in `8bc89d1`. **The user wants them removed later:** close Unity, delete both lines from the manifest, and delete `Packages/packages-lock.json` and `ProjectSettings/Packages/com.unity.ai.assistant`. Then reopen the project and check the lock file lists only built-in modules.
 - **Possible next:**
   - A "Cage → Save scene as map" Editor menu item for maps arranged by hand.
   - Set the robot's real size.

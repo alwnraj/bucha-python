@@ -1,6 +1,6 @@
 # Instructions for the next agent
 
-Read `handoff.md` for project state and `README.md` for the runnable workflow.
+Read `handoff.md` for project state and `README.md` for the runnable workflow. Add a dated entry to `session.md` (the session journal, newest first) for every working session: what was asked, done, found and left.
 
 ## User's standing instructions
 
