@@ -1,5 +1,7 @@
 # Handoff
 
+**New thread? Start with the last section, "Pivot: procedural maps in Unity for the mocap cage — 2026-11-18".** Earlier sections are history.
+
 ## Webcam photo input — 2026-10-29
 
 The local depth website accepts a single webcam photo through browser camera permission and processes it with the same relative-depth, metric-depth and rotatable relief pipeline as an uploaded image. The camera stops on capture, close or page exit. This is a still-photo workflow, not live inference or multi-view reconstruction. The upload option and GLB workflows remain available. See README for usage; no new packages are needed.
@@ -173,4 +175,170 @@ The user ran `extract_objects.py` on an HM3D indoor home (outdoor-only classes a
   - `texture_crop` replaces images no triangle uses with 1×1 placeholders. HM3D objects had carried all 40 scene images: house output went from 7.1 GB to 235 MB.
 
 72 tests pass. Nothing committed since `0116116`.
+
+## Pivot: procedural maps in Unity for the mocap cage — 2026-11-18
+
+### Goal and why
+- **Why the pivot:** the GATOR code and weights are still unreleased, so the photo-to-object work is paused.
+- **New goal:** the user wants to create **maps by procedural generation in Unity** for the lab's OptiTrack motion-capture cage.
+  - **A map** is a floor plane plus virtual objects, each with a pose matrix.
+  - **Procedural generation** is a set of rules that produces the map, which Unity then builds.
+- **Objects are purely virtual**, but should act like real ones:
+  - they have colliders and don't fall through the floor
+  - tracked real things in the cage can "touch" them, detected by collision
+- **Meeting-note themes to keep in mind:**
+  - splitting one asset into child assets that each have their own materials and matrices and behave like the parent in game engines
+  - counterfactual cases: scene variations made by removing, moving or swapping objects
+- **The user is new to Unity:** guide them step by step.
+
+### Lab facts (verified 2026-11-18 unless marked)
+- **Cage:** a rectangle 22 × 30 ft (6.71 × 9.14 m), per the user.
+- **Motive:** runs on `192.168.1.42` and streams VRPN on port 3883. It can also stream NatNet, but no NatNet multicast reached this Mac in a 5 s listen; it may be unicast or off.
+- **This Mac** is on the lab network at `192.168.1.191`. The `100.x` Tailscale network is the user's personal one, not AIMSNet. The address in the user's drone repo (`192.168.1.100`) is not live.
+- **Rigid bodies streaming:** `modalai` (ModalAI Starling drone; the drone itself is `192.168.1.236`, do not connect to it) and `starscream`.
+- **Sample `modalai` reading (static):**
+  - position x −0.78, y 0.07, z −0.01 m
+  - quaternion (x 0.003, y −0.702, z 0.004, w 0.712): level, yawed about −89°
+  - about 57 reports per second
+- **Axes:** Motive is **Y-up**. Positions are relative to Motive's ground-plane origin, which is **not** the cage centre. Cage extent relative to that origin is unknown; measure it by reading a tracked body at two or more corners.
+- **`vrpn_peek.py` (new, repo root):** dependency-free, read-only VRPN reader.
+  - Usage: `python3 vrpn_peek.py modalai 192.168.1.42 5`
+  - It connects over TCP, describes the sender and `vrpn_Tracker Pos_Quat` type, and decodes big-endian pose reports. The server cookie is `vrpn: ver. 07.33`.
+  - The lab manual's compiled `vrpn.so` Python module is **not** on this Mac.
+- **Rules from the lab manual:**
+  - Reading the stream is passive and fine.
+  - Change nothing in Motive, on the drone or in config files without asking the user.
+  - If a body was re-created in Motive, its name or orientation may change; ask before assuming.
+- **User's drone repo:** github.com/RickyMetral/optitrack is a ROS 2 C++ package that reads VRPN (`server_address`, `rigid_body_name`) and feeds PX4. It's a useful reference for naming and frames, but it is not usable in Unity directly.
+
+### Unity on this Mac
+- **Installed:** Unity Hub at `/Applications/Unity Hub.app`, Editor **6000.6.9f1** at `/Applications/Unity/Hub/Editor/6000.6.9f1/Unity.app`. An earlier claim in this thread that Unity was not installed was wrong.
+- **Not checked:** licence activation, and whether batch mode (`-batchmode -nographics -projectPath … -executeMethod …`) works.
+  - Ask the user before creating a Unity project or running the Editor.
+  - Licence sign-in must be done by the user.
+- **The user's Linux ThinkPad** (`192.168.1.171`) has no Unity.
+- **Mocap input in Unity, two options:**
+  - OptiTrack's Unity plugin, which uses NatNet. Version and licence not yet checked; the project download rules apply (pinned, at least two weeks old).
+  - A small C# VRPN reader ported from `vrpn_peek.py`.
+
+### Proposed design (agreed in principle, not built)
+1. **Map file:** a map is a JSON file holding:
+   - a seed and the rules used
+   - the floor (cage size in metres)
+   - objects, each with id, type (box, cylinder, wall, or a GLB asset), size and a 4×4 pose in a stated frame
+2. **Generator:** Python rules in this repo write the map, reproducible from the seed and testable without Unity. Example rules: N obstacles with minimum spacing and a clear border or entry zone, grids, corridors or walls.
+3. **Unity loader:** one Unity script reads the JSON and builds the level.
+   - A floor plane with a collider, sized to the cage.
+   - Each object spawned with its base on the floor and its own collider.
+   - Rigidbodies only on things that should be pushable.
+4. **Live tracking:** each tracked body becomes an invisible kinematic collider driven by mocap poses, so Unity reports contacts with virtual objects.
+   - Settle the Motive→Unity handedness conversion once.
+   - Align the origin using measured cage corners.
+5. **Later:** objects extracted from scans could populate maps once each child GLB has its own pivot and a clean single node. See "Open items from the scan work".
+
+### Questions still open for the user
+1. What gets tracked (drone, robot, people), and what should happen on a virtual collision: log, show, or stop/steer?
+2. Does anyone view the virtual world live (monitor, VR or Magic Leap 2), or is it collision-only?
+3. Which map types and object kinds are needed first?
+4. Where is Motive's origin relative to the cage corners? Can it be measured with a tracked body?
+5. Is the Unity licence activated, and may the agent run Unity in batch mode here?
+6. Where should the Unity project live: this repo (new branch) or a separate repo?
+
+### Repo state at handoff
+- **Branch:** `glb-object-extraction`.
+  - Commits: `0116116` (GLB extraction, photo pipeline, depth tools), `a8732be` (label-free `split_scene.py`).
+  - Nothing pushed; no remote configured.
+  - **Uncommitted:** `vrpn_peek.py`, this handoff section, and the `agent.md` direction update.
+- **Scan files deliberately uncommitted** (size and licensing): `data/HaxA7YrQdEC.glb`, `data/7UrtFsADwob.glb`, `data/TEEsavR23oF.glb`, `data/flat-roof*.glb`.
+- **Tests:** 72 passed at `a8732be`.
+- **Results folders:** ignored and safe to delete or regenerate.
+- **Downloaded or installed with approval:**
+  - SegFormer-B5 ONNX (`models/`)
+  - DracoPy 2.2.0
+  - flat-roof scan (CC BY 4.0, attribute Matt1Up)
+
+### First build — 2026-11-18 (branch `unity-maps`)
+- **User's answers:** (1) what happens on a collision is someone else's decision; our job is maps with objects that can be detected. (2) The virtual world must be live. (3) Any map type; start with Kenney City Kit (Industrial). (5) Licence is active, and batch mode may be used. (6) Same repo, separate branch. Question 4 (Motive origin vs cage corners) is still open.
+- **Downloaded with approval:** Kenney City Kit (Industrial) 2.0 zip, 5.0 MB, CC0, dated 2026-08-31, SHA-256 `5b381164…96d2`. Unzipped to `data/kenney-city-kit-industrial/` (uncommitted). FBX copies are in the Unity project.
+- **Built:**
+  - `cage_map.py`: seeded scatter rule. It writes map JSON (frame stated in the file, flat 16-number row-major matrices, footprints). 5 tests in `tests/test_cage_map.py`.
+  - Unity project `unity/CageMaps`:
+    - `MapLoader` (floor box collider; static objects with convex mesh colliders)
+    - `VrpnClient` (read-only C# port of `vrpn_peek.py`, background thread)
+    - `TrackedBody` (kinematic trigger; logs and shows contacts; keyboard fallback)
+    - `Editor/CageBuild` (menu, `BuildAndCheck`, `PlayCheck`)
+  - README section "Procedural cage maps in Unity" has the step-by-step instructions.
+- **Verified:**
+  - All 77 Python tests pass.
+  - Batch build of `seed-1.json`: all 8 objects found by a collision query, base at y = 0.000, and footprints match the JSON within 1 cm.
+  - Play-mode check: contact start and end both reported for `obj-00`.
+  - A rendered preview showed the textured models on the floor.
+- **Problems found and fixed:**
+  - Unity imports the kit with X mirrored relative to glTF. Off-centre models were up to 0.9 m out until `catalog()` mirrored X.
+  - Non-convex mesh colliders missed a body inside an object; colliders are now convex.
+  - .NET in Unity lacks `ReadDoubleBigEndian`.
+- **Package incident:** the first batch run treated the folder as a new project. Unity rewrote `manifest.json` and fetched 10 default registry packages (ai.navigation 2.0.16, analytics 3.8.2, collab-proxy 2.14.0, ide.rider 3.1.0, ide.visualstudio 2.0.26, newtonsoft-json 3.2.2, purchasing 4.15.0, services.analytics 6.3.0, services.core 1.18.0, xr.legacyinputhelpers 3.0.1). The manifest was restored to built-in modules only, and `Library/` and the lock file were deleted. The lock file now lists only built-ins. Unity's global download cache (`~/Library/Unity/cache`) may still hold those packages. To avoid this, always keep `ProjectSettings/ProjectVersion.txt` in place.
+- **Live mocap, same day after the user switched Motive on:**
+  - Motive only sends poses for bodies its cameras see; `modalai` streams at 55 Hz, `starscream` sent none.
+  - Unity's `VrpnClient` decodes the same pose as `vrpn_peek.py`.
+  - **Calibration:** the user put `modalai` at the front end, right side and back end middles of the cage. Readings, Motive (x, z):
+    - front (0.15, 4.23)
+    - right (−3.55, 0.04)
+    - back (−0.18, −4.59)
+    - start near the centre (−0.40, −0.02)
+  - What that means:
+    - Motive Z runs along the 30 ft side, with +Z toward the front.
+    - Facing the front, the right side is Motive −X, as expected for right-handed Motive, so `mirrorX` stays on and the yaw stays 0.
+    - The front-to-back drone spacing is 8.82 m (about 9.12 m adding the drone's half-size at each end, matching 30 ft).
+  - **Set:** `motiveOriginInCage = (3.01, 0, 4.74)`. Cage Z 0 is the back end and cage X 0 the left side. The left side was inferred from the 22 ft width, not measured. Accuracy is about ±0.15 m (drone size).
+  - **Check:** the drone resting at the back middle maps to cage (3.19, 0.08, 0.15).
+- **Not verified:**
+  - **Orientation:** the drone was never rotated during calibration, so a turn has not been checked; the mirrored-quaternion formula is derived, not measured.
+  - **The left cage side.**
+  - **Interactive use** in the Editor window.
+- **Next:**
+  - The user presses Play in the Editor and walks the drone into a virtual object.
+  - Rotate the drone 90° once to confirm its heading in Unity.
+  - Then more map rules or counterfactual variants (remove, move or swap objects by id).
+  - Nothing committed yet.
+
+### Rulesets for simulation maps — 2026-11-19
+- **User's answers:** the maps are mostly for a **ground robot**. Between runs, the **layout type, object types and start/goal positions** should vary. Anything inside the cage is allowed.
+- **Built in `cage_map.py`:**
+  - The old `--seed/--count` command is replaced by `generate` and `variant` subcommands.
+  - Rulesets are JSON files in `rulesets/`: `scatter`, `aisles` (`rows` layout) and `baffles` (walls across the cage, each with one opening).
+  - **Start and goal zones:** random anywhere in the cage, at least `min_separation_m` apart. For baffles they sit beyond the first and last wall.
+  - **Path check:** a breadth-first search on a 5 cm grid, with obstacles inflated by `robot.radius_m` (default 0.25 m) and the cage walls kept out of reach. A map that fails is redrawn, up to 200 attempts.
+  - **Variants:** remove, move or swap objects by id. A variant is rejected if it overlaps something or blocks the path, and it records `variant_of`.
+  - `--png` writes a top-down picture of each map.
+  - Map format version 2 adds `ruleset`, `start`, `goal` and `path_check`.
+- **Unity:** `MapLoader` draws Start (green) and Goal (red) squares with no collider; version 1 maps without zones still load. `CageBuild` checks that the zones exist. The default map is now `scatter-1.json`. Maps for seeds 1–3 of each ruleset are in `StreamingAssets/maps`; the old `seed-1.json` was removed.
+- **Fixes made along the way:**
+  - Random zones knocked holes in baffle walls; zones are now placed beyond the walls.
+  - Wall ends were left open; they are now filled with models that fit.
+- **Verified:**
+  - 8 generator tests: every ruleset over 4 seeds, repeatability, baffle openings, the path check, variants and the command line.
+  - All Python tests pass, including the 31 archived ones.
+  - Unity batch build passes for scatter-1, aisles-1 and baffles-1; the Play-mode contact test passes. Rendered pictures look right.
+- **Not verified:**
+  - The 0.25 m default robot radius is a placeholder; the real robot's size is unknown.
+  - The path check treats the robot as a disc and checks 4-connected moves only, so it is slightly conservative.
+  - Unity's `AI Assistant` (2.22.0-pre.1) and `AI Inference` (2.6.1) packages appeared in `Packages/manifest.json` when the user opened the editor. They were not removed; the user has not decided.
+- **Possible next:**
+  - A "Cage → Save scene as map" Editor menu item for maps arranged by hand.
+  - Set the robot's real size.
+  - Run many seeds per ruleset for simulation batches.
+
+### Open items from the scan work (paused)
+- **Clean labeled mode:** render each split object alone, label it with SegFormer-B5 (no download) and keep only confident real items. RF-DETR (Apache 2.0, ONNX detection exports on `onnx-community`) is the alternative.
+  - The user found 157 raw objects too many and "incomprehensible".
+- **Unity-ready children:** per-object pivot at the base plus a placement matrix, a single clean node with only the materials used, Y-up correction for Z-up scans, and `scene.json` for counterfactual edits.
+- **Not validated:** hole filling after removing objects; any accuracy measurement (HM3D-Semantics labels could be used if the user accepts Matterport's terms).
+
+### Standing constraints (from AGENTS.md and agent.md)
+- No subagents.
+- No overengineering.
+- No edits for question-only requests.
+- Downloads must be explicitly pinned and at least two weeks old.
+- Ask before downloads, network actions beyond read-only stream access, and anything that changes lab systems.
 

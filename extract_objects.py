@@ -493,10 +493,44 @@ def merge_fragments(object_id, named, confidence, adjacency, heights=None, share
     return _name_objects(object_id, classes)
 
 
+def voxel_surface(occupied, origin, voxel_size):
+    """Closed triangle mesh of the faces between occupied and empty voxels (outward winding)."""
+    padded = np.pad(occupied, 1)
+    corners = {}
+    vertices, faces = [], []
+
+    def vertex(key):
+        if key not in corners:
+            corners[key] = len(vertices)
+            vertices.append(key)
+        return corners[key]
+
+    for axis in range(3):
+        u, v = [k for k in range(3) if k != axis]
+        for step in (1, -1):
+            neighbour = np.roll(padded, -step, axis=axis)
+            exposed = np.argwhere(padded & ~neighbour) - 1
+            for cell in exposed:
+                base = cell.copy()
+                if step == 1:
+                    base[axis] += 1
+                quad = []
+                for du, dv in ((0, 0), (1, 0), (1, 1), (0, 1)):
+                    corner = base.copy()
+                    corner[u] += du
+                    corner[v] += dv
+                    quad.append(vertex(tuple(corner)))
+                # The quad's normal is +axis when (u, v, axis) is a cyclic order of (0, 1, 2).
+                if (step == 1) == ((u, v) in ((1, 2), (2, 0), (0, 1))):
+                    faces += [[quad[0], quad[1], quad[2]], [quad[0], quad[2], quad[3]]]
+                else:
+                    faces += [[quad[0], quad[2], quad[1]], [quad[0], quad[3], quad[2]]]
+    vertices = np.asarray(origin, float) + np.array(vertices, dtype=float).reshape(-1, 3) * voxel_size
+    return vertices, np.array(faces, dtype=np.int64).reshape(-1, 3)
+
+
 def closed_collider(triangles, ground, resolution=48):
     """Watertight voxel solid: each occupied column extruded to the object's bottom."""
-    from photo_carve import voxel_surface
-
     basis = np.stack([ground["right"], ground["forward"], ground["up"]])
     local = triangles @ basis.T
     low, high = local.reshape(-1, 3).min(axis=0), local.reshape(-1, 3).max(axis=0)

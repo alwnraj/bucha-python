@@ -1,0 +1,8 @@
+{
+  "description": "Warehouse-style rows along the long side with aisles between; some slots left empty.",
+  "layout": {"type": "rows", "aisle_m": 1.0, "row_depth_m": 0.9, "fill": 0.85},
+  "objects": {"include": ["shipping-container-*", "detail-tank", "building-k", "building-p", "building-s"], "count": [0, 0]},
+  "spacing": {"gap_m": 0.15, "border_m": 0.4},
+  "robot": {"radius_m": 0.25},
+  "zones": {"size_m": 0.8, "min_separation_m": 5.0}
+}

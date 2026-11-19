@@ -11,7 +11,9 @@ Read `handoff.md` for project state and `README.md` for the runnable workflow.
 
 ## Project direction
 
-Keep loading, automatic or annotation-guided labeling, exports, previews and collision queries executable through Python scripts in VS Code. The user abandoned the website prototype. Do not introduce a browser frontend, Node.js service, Unity project or large ML installation unless the user asks for that direction.
+**Current direction (2026-11-18): procedural map generation in Unity for the lab's OptiTrack mocap cage.** The user asked for Unity and is new to it, so guide them step by step. Read the latest `handoff.md` section first. Keep generation rules testable in Python where practical; still do not introduce a browser frontend, Node.js service or large ML installation unless the user asks.
+
+The GLB-scan work below is paused, not abandoned. Keep its loading, labeling, exports, previews and collision queries executable through Python scripts in VS Code. The user abandoned the website prototype.
 
 The current goal is **offline 3D object identification for robot navigation**, across indoor and outdoor scenes. Process GLB files as a batch job: separate physical objects, assign semantic names when evidence supports them, and report each object's identity, XYZ position and 3D bounds in a shared coordinate frame. Retain unknown labels when the class or object boundary is uncertain. The robot needs 3D locations and collision geometry; a 2D map is not a required output. Real-time processing is not a current requirement. LiDAR point clouds and depth scans are possible future inputs, not implemented support. Physical scale and robot-to-scan registration must be established before treating coordinates as actionable robot positions.
 

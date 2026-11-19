@@ -6,3 +6,11 @@ results-*/
 *.pyc
 .DS_Store
 .env
+unity/*/Library/
+unity/*/Temp/
+unity/*/Logs/
+unity/*/UserSettings/
+unity/*/obj/
+unity/*/Build/
+unity/*/*.csproj
+unity/*/*.sln

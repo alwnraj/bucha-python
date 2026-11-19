@@ -1,0 +1,297 @@
+{
+ "version": 2,
+ "frame": "metres; Y up; origin on the floor at the cage back-left corner; X along the 22 ft side, Z along the 30 ft side; Unity left-handed axes; matrix = 16 numbers row-major, asset base at Y=0",
+ "seed": 2,
+ "ruleset": {
+  "layout": {
+   "type": "scatter"
+  },
+  "objects": {
+   "include": [
+    "*"
+   ],
+   "count": [
+    6,
+    10
+   ]
+  },
+  "spacing": {
+   "gap_m": 0.6,
+   "border_m": 0.5
+  },
+  "robot": {
+   "radius_m": 0.25
+  },
+  "zones": {
+   "size_m": 0.8,
+   "min_separation_m": 5.0
+  },
+  "attempts": 200,
+  "description": "Random obstacles anywhere; start and goal anywhere, at least 5 m apart.",
+  "name": "scatter"
+ },
+ "attempt": 0,
+ "floor": {
+  "size_x": 6.71,
+  "size_z": 9.14
+ },
+ "start": {
+  "center": [
+   5.594,
+   7.857
+  ],
+  "size": 0.8
+ },
+ "goal": {
+  "center": [
+   1.178,
+   1.523
+  ],
+  "size": 0.8
+ },
+ "path_check": {
+  "robot_radius_m": 0.25,
+  "passable": true
+ },
+ "asset_source": "Kenney City Kit (Industrial) 2.0, CC0",
+ "objects": [
+  {
+   "id": "obj-00",
+   "asset": "shipping-container-b",
+   "scale": 1.0,
+   "matrix": [
+    0.0,
+    0.0,
+    1.0,
+    5.592118,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    -1.0,
+    0.0,
+    0.0,
+    4.779628,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "size": [
+    0.3726,
+    0.3481,
+    0.8226
+   ],
+   "footprint": [
+    5.1808,
+    4.5933,
+    6.0034,
+    4.9659
+   ]
+  },
+  {
+   "id": "obj-01",
+   "asset": "building-i",
+   "scale": 1.0,
+   "matrix": [
+    0.0,
+    0.0,
+    1.0,
+    3.413052,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    -1.0,
+    0.0,
+    0.0,
+    3.427888,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "size": [
+    1.0281,
+    0.7335,
+    1.3
+   ],
+   "footprint": [
+    3.0371,
+    2.4797,
+    4.3371,
+    3.5078
+   ]
+  },
+  {
+   "id": "obj-02",
+   "asset": "chimney-medium",
+   "scale": 1.0,
+   "matrix": [
+    0.0,
+    0.0,
+    -1.0,
+    2.566371,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    7.49199,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "size": [
+    0.45,
+    1.925,
+    0.45
+   ],
+   "footprint": [
+    2.3414,
+    7.267,
+    2.7914,
+    7.717
+   ]
+  },
+  {
+   "id": "obj-03",
+   "asset": "solar-panel-flat",
+   "scale": 1.0,
+   "matrix": [
+    0.0,
+    0.0,
+    -1.0,
+    2.502924,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    6.408706,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "size": [
+    0.4182,
+    0.0615,
+    0.7134
+   ],
+   "footprint": [
+    2.1462,
+    6.1996,
+    2.8596,
+    6.6178
+   ]
+  },
+  {
+   "id": "obj-04",
+   "asset": "solar-panel-portrait",
+   "scale": 1.0,
+   "matrix": [
+    0.0,
+    0.0,
+    -1.0,
+    3.710097,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    4.629883,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "size": [
+    0.4182,
+    0.41,
+    0.6486
+   ],
+   "footprint": [
+    3.3858,
+    4.4208,
+    4.0344,
+    4.839
+   ]
+  },
+  {
+   "id": "obj-05",
+   "asset": "building-h",
+   "scale": 1.0,
+   "matrix": [
+    -1.0,
+    0.0,
+    0.0,
+    2.133212,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    -1.0,
+    4.478515,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "size": [
+    1.3217,
+    0.7335,
+    1.31
+   ],
+   "footprint": [
+    0.8914,
+    3.5445,
+    2.2131,
+    4.8545
+   ]
+  },
+  {
+   "id": "obj-06",
+   "asset": "solar-panel-landscape",
+   "scale": 1.0,
+   "matrix": [
+    -1.0,
+    0.0,
+    0.0,
+    5.974657,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    -1.0,
+    1.260713,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "size": [
+    0.7134,
+    0.2624,
+    0.3951
+   ],
+   "footprint": [
+    5.4704,
+    1.1899,
+    6.1838,
+    1.585
+   ]
+  }
+ ]
+}

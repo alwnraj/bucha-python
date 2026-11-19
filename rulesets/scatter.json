@@ -1,0 +1,8 @@
+{
+  "description": "Random obstacles anywhere; start and goal anywhere, at least 5 m apart.",
+  "layout": {"type": "scatter"},
+  "objects": {"include": ["*"], "count": [6, 10]},
+  "spacing": {"gap_m": 0.6, "border_m": 0.5},
+  "robot": {"radius_m": 0.25},
+  "zones": {"size_m": 0.8, "min_separation_m": 5.0}
+}

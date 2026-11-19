@@ -1,0 +1,8 @@
+{
+  "description": "Walls across the cage, each with one opening, so the robot has to weave from start to goal.",
+  "layout": {"type": "baffles", "walls": 3, "opening_m": 1.2, "joint_m": 0.05},
+  "objects": {"include": ["shipping-container-*", "building-k", "building-p", "building-s", "detail-tank"], "count": [0, 0]},
+  "spacing": {"gap_m": 0.0, "border_m": 0.0},
+  "robot": {"radius_m": 0.25},
+  "zones": {"size_m": 0.8, "min_separation_m": 3.0}
+}
