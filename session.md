@@ -19,6 +19,7 @@ A dated log of what was done, newest first. One entry per working session: what 
 - **Committed** `8bc89d1` on branch `unity-maps`. The scan GLBs in `data/` are not committed.
 - **To do:** remove Unity's AI Assistant packages, which the editor added when the user opened the project. They are committed in `Packages/manifest.json`: `com.unity.ai.assistant` 2.22.0-pre.1 (a pre-release) and `com.unity.ai.inference` 2.6.1. The user chose to remove them later. Unity must be closed when removing them.
 - Started this journal.
+- **Pushed** branch `unity-maps` to the new **private** GitHub repo https://github.com/alwnraj/bucha-python (remote `origin`). Keep it private: the tracked Bucha GLB is under Sketchfab's Standard licence, which hasn't been cleared for redistribution. Branches `main` and `glb-object-extraction` were not pushed separately; their commits are already in `unity-maps`'s history.
 
 ## 2026-11-18
 

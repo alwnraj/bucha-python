@@ -247,7 +247,7 @@ The user ran `extract_objects.py` on an HM3D indoor home (outdoor-only classes a
 ### Repo state at handoff
 - **Branch:** `glb-object-extraction`.
   - Commits: `0116116` (GLB extraction, photo pipeline, depth tools), `a8732be` (label-free `split_scene.py`).
-  - Nothing pushed; no remote configured.
+  - Pushed 2026-11-19 to the private repo https://github.com/alwnraj/bucha-python (`origin`, branch `unity-maps`). Keep it private because of the Bucha GLB licence.
   - **Uncommitted:** `vrpn_peek.py`, this handoff section, and the `agent.md` direction update.
 - **Scan files deliberately uncommitted** (size and licensing): `data/HaxA7YrQdEC.glb`, `data/7UrtFsADwob.glb`, `data/TEEsavR23oF.glb`, `data/flat-roof*.glb`.
 - **Tests:** 72 passed at `a8732be`.
